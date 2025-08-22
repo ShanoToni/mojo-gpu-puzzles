@@ -23,9 +23,15 @@ fn naive_matmul[
     a: LayoutTensor[mut=False, dtype, layout],
     b: LayoutTensor[mut=False, dtype, layout],
 ):
-    row = block_dim.y * block_idx.y + thread_idx.y
-    col = block_dim.x * block_idx.x + thread_idx.x
+    row = block_dim.y * block_idx.y + thread_idx.y  # N
+    col = block_dim.x * block_idx.x + thread_idx.x  # M
     # FILL ME IN (roughly 6 lines)
+    if row < size and col < size:
+        temp: output.element_type = 0
+        for k in range(size):
+            temp += a[col, k] * b[k, row]
+
+        output[col, row] = temp
 
 
 # ANCHOR_END: naive_matmul
@@ -44,6 +50,21 @@ fn single_block_matmul[
     local_row = thread_idx.y
     local_col = thread_idx.x
     # FILL ME IN (roughly 12 lines)
+    block_a = tb[dtype]().row_major[TPB, TPB]().shared().alloc()
+    block_b = tb[dtype]().row_major[TPB, TPB]().shared().alloc()
+
+    if row < size and col < size:
+        block_a[local_row, local_col] = a[row, col]
+        block_b[local_row, local_col] = b[row, col]
+
+    barrier()
+
+    if col < size and row < size:
+        temp: output.element_type = 0
+        for k in range(size):
+            temp += block_a[local_row, k] * block_b[k, local_col]
+
+        output[row, col] = temp
 
 
 # ANCHOR_END: single_block_matmul
@@ -67,6 +88,34 @@ fn matmul_tiled[
     tiled_row = block_idx.y * TPB + thread_idx.y
     tiled_col = block_idx.x * TPB + thread_idx.x
     # FILL ME IN (roughly 20 lines)
+
+    block_a = tb[dtype]().row_major[TPB, TPB]().shared().alloc()
+    block_b = tb[dtype]().row_major[TPB, TPB]().shared().alloc()
+
+    temp: output.element_type = 0
+
+    for tile in range((size + TPB - 1) // TPB):
+        if tiled_row < size and (tile * TPB + local_col) < size:
+            block_a[local_row, local_col] = a[tiled_row, tile * TPB + local_col]
+        if tiled_col < size and (tile * TPB + local_row) < size:
+            block_b[local_row, local_col] = b[tile * TPB + local_row, tiled_col]
+
+        barrier()
+
+        if tiled_row < size and tiled_col < size:
+            min_val: Int
+            if TPB < (size - (tile * TPB)):
+                min_val = TPB
+            else:
+                min_val = size - (tile * TPB)
+
+            for k in range(min_val):
+                temp += block_a[local_row, k] * block_b[k, local_col]
+
+        barrier()
+
+    if tiled_row < size and tiled_col < size:
+        output[tiled_row, tiled_col] = temp
 
 
 # ANCHOR_END: matmul_tiled

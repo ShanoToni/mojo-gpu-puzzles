@@ -1,13 +1,13 @@
-from sys import sizeof
-from testing import assert_equal
-from gpu.host import DeviceContext
-
-# ANCHOR: axis_sum
 from gpu import thread_idx, block_idx, block_dim, barrier
+from gpu.host import DeviceContext
 from layout import Layout, LayoutTensor
 from layout.tensor_builder import LayoutTensorBuild as tb
+from sys import sizeof, argv
+from math import log2
+from testing import assert_equal
 
 
+# ANCHOR: axis_sum
 alias TPB = 8
 alias BATCH = 4
 alias SIZE = 6
@@ -29,6 +29,30 @@ fn axis_sum[
     local_i = thread_idx.x
     batch = block_idx.y
     # FILL ME IN (roughly 15 lines)
+    cache = tb[dtype]().row_major[SIZE]().shared().alloc()
+
+    if global_i < size:
+        cache[local_i] = a[batch, local_i]
+
+    barrier()
+
+    stride = TPB // 2
+    while stride > 0:
+        temp: output.element_type = 0
+        if local_i < stride:
+            temp += cache[local_i + stride]
+
+        barrier()
+
+        if local_i < stride:
+            cache[local_i] += temp
+
+        barrier()
+
+        stride = stride // 2
+
+    if local_i == 0:
+        output[batch, 0] = cache[0]
 
 
 # ANCHOR_END: axis_sum
