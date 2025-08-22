@@ -26,6 +26,23 @@ fn pooling(
     global_i = block_dim.x * block_idx.x + thread_idx.x
     local_i = thread_idx.x
     # FILL ME IN (roughly 10 lines)
+    shared[local_i] = a[global_i]
+    local_out = Scalar[dtype](0.0)
+    barrier()
+    if global_i < size:
+        if global_i == 1:
+            local_out = shared[0]
+        if global_i == 1:
+            local_out = shared[0] + shared[1]
+        elif global_i > 1:
+            local_out = (
+                shared[local_i - 2] + shared[local_i - 1] + shared[local_i]
+            )
+
+    barrier()
+
+    if global_i < size:
+        output[global_i] = local_out
 
 
 # ANCHOR_END: pooling

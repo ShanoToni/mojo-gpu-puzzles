@@ -25,7 +25,25 @@ fn dot_product[
     size: Int,
 ):
     # FILL ME IN (roughly 13 lines)
-    ...
+    global_i = block_dim.x * block_idx.x + thread_idx.x
+    local_i = thread_idx.x
+
+    shared = tb[dtype]().row_major[TPB]().shared().alloc()
+
+    if global_i < size:
+        shared[local_i] = a[global_i] * b[global_i]
+
+    barrier()
+
+    items_to_reduce = TPB // 2
+    while items_to_reduce > 0:
+        shared[local_i] = shared[local_i] + shared[local_i + items_to_reduce]
+
+        barrier()
+        items_to_reduce = items_to_reduce // 2
+
+    if global_i == 0:
+        output[0] = shared[0]
 
 
 # ANCHOR_END: dot_product_layout_tensor
