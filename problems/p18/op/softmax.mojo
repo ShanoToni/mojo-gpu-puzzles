@@ -25,7 +25,49 @@ fn softmax_gpu_kernel[
     input: LayoutTensor[mut=False, dtype, layout],
 ):
     # FILL IN (roughly 31 lines)
-    ...
+    loc_i = thread_idx.x
+    glob_i = block_dim.x * block_idx.x + thread_idx.x
+
+    max_shared = tb[dtype]().row_major[TPB]().shared().alloc()
+    sum_shared = tb[dtype]().row_major[TPB]().shared().alloc()
+
+    var max_val: Scalar[dtype] = min_finite[dtype]()
+    if glob_i < input_size:
+        max_val = rebind[Scalar[dtype]](input[glob_i])
+
+    max_shared[loc_i] = max_val
+
+    barrier()
+
+    var stride = TPB // 2
+    while stride > 0:
+        if loc_i < stride:
+            max_shared[loc_i] = max(
+                max_shared[loc_i], max_shared[loc_i + stride]
+            )
+
+        barrier()
+        stride = stride // 2
+
+    block_max = max_shared[0]
+
+    var exp_val: Scalar[dtype] = 0.0
+    if glob_i < input_size:
+        exp_val = rebind[Scalar[dtype]](input[glob_i] - block_max)
+    sum_shared[loc_i] = exp_val
+
+    stride = TPB // 2
+    while stride > 0:
+        if loc_i < stride:
+            sum_shared[loc_i] = sum_shared[loc_i] + sum_shared[loc_i + stride]
+
+        barrier()
+        stride = stride // 2
+
+    block_sum = sum_shared[0]
+
+    if glob_i < input_size:
+        output[glob_i] = exp_val / block_sum
 
 
 # ANCHOR_END: softmax_gpu_kernel
@@ -41,7 +83,20 @@ fn softmax_cpu_kernel[
     input: LayoutTensor[dtype, layout, MutableAnyOrigin],
 ):
     # FILL IN (roughly 10 lines)
-    ...
+    var max_val: Scalar[dtype] = min_finite[dtype]()
+
+    for i in range(input_size):
+        max_val = max(max_val, rebind[Scalar[dtype]](input[i]))
+
+    var sum_exp: Scalar[dtype] = 0.0
+
+    for i in range(input_size):
+        exp_val = rebind[Scalar[dtype]](exp(input[i] - max_val))
+        output[i] = exp_val
+        sum_exp += exp_val
+
+    for i in range(input_size):
+        output[i] = output[i] / sum_exp
 
 
 # ANCHOR_END: softmax_cpu_kernel
