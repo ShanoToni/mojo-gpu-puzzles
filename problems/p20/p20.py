@@ -22,13 +22,16 @@ def conv1d_pytorch(input_tensor: torch.Tensor, kernel_tensor: torch.Tensor) -> t
 
     # Call our custom conv1d operation with explicit output tensor
     # The Mojo signature expects: (out, input, kernel)
-    conv1d = ops.conv1d[{"input_size": input_tensor.shape[0], "conv_size": kernel_tensor.shape[0]}]
+    conv1d = ops.conv1d[{"input_size": input_tensor.shape[0],
+                         "conv_size": kernel_tensor.shape[0]}]
 
     # FILL IN with 1 line of code
+    torch.compile(conv1d)(output_tensor, input_tensor, kernel_tensor)
 
     return output_tensor
 
 # ANCHOR_END: conv1d_pytorch
+
 
 def conv1d_max_graph_reference(
     input_array: np.ndarray,
@@ -60,8 +63,10 @@ def conv1d_max_graph_reference(
     with Graph(
         "conv_1d_reference_graph",
         input_types=[
-            TensorType(DType.float32, shape=input_tensor.shape, device=DeviceRef.from_device(device_obj)),
-            TensorType(DType.float32, shape=kernel_tensor.shape, device=DeviceRef.from_device(device_obj)),
+            TensorType(DType.float32, shape=input_tensor.shape,
+                       device=DeviceRef.from_device(device_obj)),
+            TensorType(DType.float32, shape=kernel_tensor.shape,
+                       device=DeviceRef.from_device(device_obj)),
         ],
         custom_extensions=[Path(__file__).parent / "op"],
     ) as graph:
@@ -146,7 +151,8 @@ if __name__ == "__main__":
     print("-" * 40)
 
     try:
-        max_graph_result = conv1d_max_graph_reference(input_array, kernel_array)
+        max_graph_result = conv1d_max_graph_reference(
+            input_array, kernel_array)
         print(f"MAX Graph result: {max_graph_result}")
 
         # Verify MAX Graph result
@@ -154,7 +160,8 @@ if __name__ == "__main__":
         print("✅ MAX Graph verification PASSED")
 
         if pytorch_result_cpu is not None:
-            np.testing.assert_allclose(pytorch_result_cpu, max_graph_result, rtol=1e-5)
+            np.testing.assert_allclose(
+                pytorch_result_cpu, max_graph_result, rtol=1e-5)
             print("✅ PyTorch and MAX Graph results MATCH")
 
     except Exception as e:

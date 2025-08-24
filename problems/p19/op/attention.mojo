@@ -142,7 +142,7 @@ fn softmax_gpu_kernel[
     var exp_val: Scalar[dtype] = 0.0
     if global_i < seq_len:
         exp_val = rebind[Scalar[dtype]](exp(scores[global_i] - block_max))
-        output[global_i] = exp_val
+        # output[global_i] = exp_val
 
     shared_sum[local_i] = exp_val
     barrier()
@@ -161,7 +161,7 @@ fn softmax_gpu_kernel[
 
     # Normalize by sum
     if global_i < seq_len:
-        output[global_i] = output[global_i] / block_sum
+        output[global_i] = exp_val / block_sum
 
 
 # CPU implementation for vector attention
