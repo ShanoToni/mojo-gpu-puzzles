@@ -28,6 +28,13 @@ fn neighbor_difference[
     lane = lane_id()
 
     # FILL IN (roughly 7 lines)
+    current_val = input[global_i]
+    next_val = shuffle_down(current_val, 1)
+
+    if lane < WARP_SIZE - 1:
+        output[global_i] = next_val - current_val
+    else:
+        output[global_i] = 0
 
 
 # ANCHOR_END: neighbor_difference
@@ -54,6 +61,17 @@ fn moving_average_3[
     lane = lane_id()
 
     # FILL IN (roughly 10 lines)
+    if global_i < size:
+        current_val = input[global_i]
+        next_val = shuffle_down(current_val, 1)
+        next_val_2 = shuffle_down(current_val, 2)
+
+        if lane < WARP_SIZE - 2 and global_i < size - 2:
+            output[global_i] = (next_val_2 + next_val + current_val) / 3.0
+        elif lane < WARP_SIZE - 1 and global_i < size - 1:
+            output[global_i] = (next_val + current_val) / 2.0
+        else:
+            output[global_i] = current_val
 
 
 # ANCHOR_END: moving_average_3
@@ -77,6 +95,22 @@ fn broadcast_shuffle_coordination[
         var scale_factor: output.element_type = 0.0
 
         # FILL IN (roughly 14 lines)
+        if lane == 0:
+            blk_start = block_dim.x * block_idx.x
+            sum: output.element_type = 0.0
+            for i in range(4):
+                if blk_start + i < size:
+                    sum += input[blk_start + i]
+            scale_factor = sum / 4.0
+        scale_factor = broadcast(scale_factor)
+
+        cur_val = input[global_i]
+        next_val = shuffle_down(cur_val, 1)
+
+        if lane < WARP_SIZE - 1 and global_i < size - 1:
+            output[global_i] = (next_val + cur_val) * scale_factor
+        else:
+            output[global_i] = cur_val * scale_factor
 
 
 # ANCHOR_END: broadcast_shuffle_coordination
@@ -99,6 +133,17 @@ fn basic_broadcast[
         var broadcast_value: output.element_type = 0.0
 
         # FILL IN (roughly 10 lines)
+        broadcast_val: output.element_type = 0.0
+        if lane == 0:
+            blk_start = block_dim.x * block_idx.x
+            sum: output.element_type = 0.0
+            for i in range(4):
+                sum += input[blk_start + i]
+
+            broadcast_value = sum
+        broadcast_value = broadcast(broadcast_value)
+
+        output[global_i] = broadcast_value + input[global_i]
 
 
 # ANCHOR_END: basic_broadcast
@@ -119,7 +164,17 @@ fn conditional_broadcast[
     lane = lane_id()
     if global_i < size:
         var decision_value: output.element_type = 0.0
+        if lane == 0:
+            blk_start = block_dim.x * block_idx.x
+            decision_value = input[blk_start] if blk_start < size else 0.0
+            cur_val: output.element_type = 0.0
 
+            for i in range(8):
+                cur_val = input[blk_start + i]
+                if cur_val > decision_value:
+                    decision_value = cur_val
+
+        decision_value = broadcast(decision_value)
         # FILL IN (roughly 10 lines)
 
         current_input = input[global_i]
