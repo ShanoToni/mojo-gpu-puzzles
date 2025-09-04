@@ -28,6 +28,11 @@ fn butterfly_pair_swap[
     global_i = block_dim.x * block_idx.x + thread_idx.x
 
     # FILL ME IN (4 lines)
+    if global_i < size:
+        cur_val = input[global_i]
+        swap_val = shuffle_xor(cur_val, 1)
+
+        output[global_i] = swap_val
 
 
 # ANCHOR_END: butterfly_pair_swap
@@ -50,6 +55,15 @@ fn butterfly_parallel_max[
     global_i = block_dim.x * block_idx.x + thread_idx.x
 
     # FILL ME IN (roughly 7 lines)
+    if global_i < size:
+        max_val = input[global_i]
+
+        offset = WARP_SIZE // 2
+        while offset > 0:
+            max_val = max(max_val, shuffle_xor(max_val, offset))
+            offset = offset // 2
+
+        output[global_i] = max_val
 
 
 # ANCHOR_END: butterfly_parallel_max
@@ -79,6 +93,17 @@ fn butterfly_conditional_max[
     if global_i < size:
         current_val = input[global_i]
         min_val = current_val
+        max_val = current_val
+
+        offset = WARP_SIZE // 2
+        while offset > 0:
+            min_val = min(min_val, shuffle_xor(min_val, offset))
+            max_val = max(max_val, shuffle_xor(max_val, offset))
+            offset = offset // 2
+        if lane % 2 == 0:
+            output[global_i] = max_val
+        else:
+            output[global_i] = min_val
 
         # FILL ME IN (roughly 11 lines)
 
@@ -115,6 +140,12 @@ fn warp_inclusive_prefix_sum[
     global_i = block_dim.x * block_idx.x + thread_idx.x
 
     # FILL ME IN (roughly 4 lines)
+    if global_i < size:
+        current_val = input[global_i]
+        scan_result = prefix_sum[exclusive=False](
+            rebind[Scalar[dtype]](current_val)
+        )
+        output[global_i] = scan_result
 
 
 # ANCHOR_END: warp_inclusive_prefix_sum
@@ -150,6 +181,24 @@ fn warp_partition[
         current_val = input[global_i]
 
         # FILL ME IN (roughly 13 lines)
+        left = Float32(1.0) if current_val < pivot else Float32(0.0)
+        right = Float32(1.0) if current_val >= pivot else Float32(0.0)
+
+        warp_left_pos = prefix_sum[exclusive=True](left)
+        warp_right_pos = prefix_sum[exclusive=True](right)
+
+        warp_left_size = left
+        offset = WARP_SIZE // 2
+        while offset > 0:
+            warp_left_size = warp_left_size + shuffle_xor(
+                warp_left_size, offset
+            )
+            offset = offset // 2
+
+        if current_val < pivot:
+            output[Int(warp_left_pos)] = current_val
+        else:
+            output[Int(warp_left_size + warp_right_pos)] = current_val
 
 
 # ANCHOR_END: warp_partition

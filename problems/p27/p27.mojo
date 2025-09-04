@@ -34,9 +34,55 @@ fn block_sum_dot_product[
     local_i = thread_idx.x
 
     # FILL IN (roughly 6 lines)
+    product: Scalar[dtype] = 0.0
+    if global_i < size:
+        product = a[global_i][0] * b[global_i][0]
+
+    total = block.sum[block_size=tpb, broadcast=False](product)
+
+    if local_i == 0:
+        output[0] = total[0]
 
 
 # ANCHOR_END: block_sum_dot_product
+# ANCHOR: traditional_dot_product_solution
+fn traditional_dot_product[
+    in_layout: Layout, out_layout: Layout, tpb: Int
+](
+    output: LayoutTensor[mut=True, dtype, out_layout],
+    a: LayoutTensor[mut=False, dtype, in_layout],
+    b: LayoutTensor[mut=False, dtype, in_layout],
+    size: Int,
+):
+    """Traditional dot product using shared memory + barriers + tree reduction.
+    Educational but complex - shows the manual coordination needed."""
+
+    shared = tb[dtype]().row_major[tpb]().shared().alloc()
+    global_i = block_dim.x * block_idx.x + thread_idx.x
+    local_i = thread_idx.x
+
+    # Each thread computes partial product
+    if global_i < size:
+        a_val = rebind[Scalar[dtype]](a[global_i])
+        b_val = rebind[Scalar[dtype]](b[global_i])
+        shared[local_i] = a_val * b_val
+
+    barrier()
+
+    # Tree reduction in shared memory - complex but educational
+    var stride = tpb // 2
+    while stride > 0:
+        if local_i < stride:
+            shared[local_i] += shared[local_i + stride]
+        barrier()
+        stride //= 2
+
+    # Only thread 0 writes final result
+    if local_i == 0:
+        output[0] = shared[0]
+
+
+# ANCHOR_END: traditional_dot_product_solution
 
 # ANCHOR: block_histogram
 alias bin_layout = Layout.row_major(SIZE)  # Max SIZE elements per bin
@@ -64,25 +110,45 @@ fn block_histogram_bin_extract[
     local_i = thread_idx.x
 
     # Step 1: Each thread determines its bin and element value
-
+    val: Scalar[dtype] = 0.0
+    bin_number: Int = -1
     # FILL IN (roughly 9 lines)
+    if global_i < size:
+        val = input_data[global_i][0]
+        bin_number = Int(val * num_bins)
+
+        if bin_number >= num_bins:
+            bin_number = num_bins - 1
+        if bin_number < 0:
+            bin_number = 0
 
     # Step 2: Create predicate for target bin extraction
 
     # FILL IN (roughly 3 line)
+    is_target: Int = 0
+    if global_i < size and bin_number == target_bin:
+        is_target = 1
 
     # Step 3: Use block.prefix_sum() for parallel bin extraction!
     # This computes where each thread should write within the target bin
 
     # FILL IN (1 line)
+    offset = block.prefix_sum[
+        dtype = DType.int32, block_size=tpb, exclusive=True
+    ](is_target)
 
     # Step 4: Extract and pack elements belonging to target_bin
 
     # FILL IN (roughly 2 line)
+    if is_target == 1:
+        bin_output[Int(offset)] = val
 
     # Step 5: Final thread computes total count for this bin
 
     # FILL IN (roughly 3 line)
+    if local_i == tpb - 1:
+        total_count = offset + is_target
+        count_output[0] = total_count
 
 
 # ANCHOR_END: block_histogram
@@ -114,23 +180,37 @@ fn block_normalize_vector[
     # Step 1: Each thread loads its element
 
     # FILL IN (roughly 3 lines)
+    val: Scalar[dtype] = 0.0
+    if global_i < size:
+        val = input_data[global_i][0]
 
     # Step 2: Use block.sum() to compute total sum (familiar from earlier!)
 
     # FILL IN (1 line)
+    sum = block.sum[block_size=tpb, broadcast=False](val)
 
     # Step 3: Thread 0 computes mean value
 
     # FILL IN (roughly 4 lines)
+    mean: Scalar[dtype] = 1.0
+    if local_i == 0:
+        if sum[0] > 0.0:
+            mean = sum / Float32(size)
 
     # Step 4: block.broadcast() shares mean to ALL threads!
     # This completes the block operations trilogy demonstration
 
     # FILL IN (1 line)
+    broadcast_mean = block.broadcast[
+        dtype = DType.float32, width=1, block_size=tpb
+    ](mean, src_thread=0)
 
     # Step 5: Each thread normalizes by the mean
 
     # FILL IN (roughly 3 lines)
+    if global_i < size:
+        normalised = val / broadcast_mean[0]
+        output_data[global_i] = normalised
 
 
 # ANCHOR_END: block_normalize
